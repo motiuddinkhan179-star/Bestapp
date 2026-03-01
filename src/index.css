@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.mobile-container {
+  @apply max-w-md mx-auto min-h-screen bg-white shadow-xl relative flex flex-col;
+}
+
+.bottom-nav {
+  @apply fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-100 flex justify-around items-center py-3 px-2 z-50;
+}
+
+.nav-item {
+  @apply flex flex-col items-center gap-1 text-slate-400 transition-colors;
+}
+
+.nav-item.active {
+  @apply text-emerald-600 font-medium;
+}
+
+.product-card {
+  @apply bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow;
+}
+
+.btn-primary {
+  @apply bg-emerald-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-50;
+}
+
+.btn-secondary {
+  @apply bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl hover:bg-slate-200 active:scale-95 transition-all;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
