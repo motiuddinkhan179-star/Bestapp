@@ -134,21 +134,30 @@ async function startServer() {
 
       res.json({ success: true, userId });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error("Signup Error:", error);
+      res.status(400).json({ 
+        error: error.message || "Signup failed",
+        details: "If you are on Vercel, SQLite will not work because the file system is read-only. Please use a cloud database like Supabase, MongoDB, or Vercel Postgres."
+      });
     }
   });
 
   app.post("/api/auth/login", (req, res) => {
-    const { mobile, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE mobile = ? AND password = ?").get(mobile, password) as any;
-    if (user) {
-      let sellerInfo = null;
-      if (user.role === 'seller') {
-        sellerInfo = db.prepare("SELECT * FROM sellers WHERE user_id = ?").get(user.id);
+    try {
+      const { mobile, password } = req.body;
+      const user = db.prepare("SELECT * FROM users WHERE mobile = ? AND password = ?").get(mobile, password) as any;
+      if (user) {
+        let sellerInfo = null;
+        if (user.role === 'seller') {
+          sellerInfo = db.prepare("SELECT * FROM sellers WHERE user_id = ?").get(user.id);
+        }
+        res.json({ success: true, user: { ...user, sellerInfo } });
+      } else {
+        res.status(401).json({ error: "Invalid credentials" });
       }
-      res.json({ success: true, user: { ...user, sellerInfo } });
-    } else {
-      res.status(401).json({ error: "Invalid credentials" });
+    } catch (err) {
+      console.error("Login Error:", err);
+      res.status(500).json({ error: "Database error. If you are on Vercel, please use a cloud database like Supabase or MongoDB instead of SQLite." });
     }
   });
 
