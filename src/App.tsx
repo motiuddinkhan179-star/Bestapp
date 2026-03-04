@@ -25,7 +25,8 @@ import {
   Settings,
   ShieldCheck,
   Bell,
-  RefreshCw
+  RefreshCw,
+  XCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, Product, CartItem, Order, Seller } from './types';
@@ -39,7 +40,7 @@ const OrdersView = ({ user, activeTab }: { user: User | null, activeTab: string 
   useEffect(() => {
     if (user) {
       const endpoint = user.role === 'seller' ? `/api/orders/seller/${user.sellerInfo?.id}` : `/api/orders/customer/${user.id}`;
-      fetch(endpoint).then(res => res.json()).then(setOrders);
+      fetch(endpoint).then(res => res.json()).then(data => setOrders(Array.isArray(data) ? data : []));
     }
   }, [user, activeTab]);
 
@@ -54,7 +55,7 @@ const OrdersView = ({ user, activeTab }: { user: User | null, activeTab: string 
     }
   };
 
-  const updateStatus = async (orderId: number, status: string) => {
+  const updateStatus = async (orderId: string, status: string) => {
     try {
       await fetch(`/api/orders/${orderId}/status`, {
         method: 'PATCH',
@@ -98,9 +99,28 @@ const OrdersView = ({ user, activeTab }: { user: User | null, activeTab: string 
                   <p className="text-xs text-slate-500">{new Date(order.created_at).toLocaleDateString()}</p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${getStatusColor(order.status)}`}>
-                  {order.status.replace(/_/g, ' ')}
+                  {order.status?.replace(/_/g, ' ') || 'Pending'}
                 </span>
               </div>
+
+              {order.items && order.items.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {order.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl">
+                      <img 
+                        src={item.image_url || 'https://picsum.photos/seed/product/100/100'} 
+                        alt={item.name} 
+                        className="w-10 h-10 rounded-lg object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold truncate">{item.name}</p>
+                        <p className="text-[10px] text-slate-400">Qty: {item.quantity} • ₹{item.price}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               
               <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                 <div className="flex items-center gap-2">
@@ -213,7 +233,12 @@ const SellerDashboardView = ({ user, activeTab, setActiveTab, logout }: { user: 
       <header className="p-6 bg-white border-b border-slate-100 flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold font-display">Seller Dashboard</h2>
-          <p className="text-xs text-slate-400">{user?.sellerInfo?.shop_name}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-slate-400">{user?.sellerInfo?.shop_name}</p>
+            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${user?.sellerInfo?.approved ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+              {user?.sellerInfo?.approved ? 'Approved' : 'Pending Approval'}
+            </span>
+          </div>
         </div>
         <button onClick={logout} className="p-2 text-slate-400 hover:text-red-500"><LogOut size={20} /></button>
       </header>
@@ -261,7 +286,7 @@ const SellerProductsView = ({ user, activeTab }: { user: User | null, activeTab:
   useEffect(() => {
     if (user?.sellerInfo) {
       // Fetch seller's products
-      fetch(`/api/products/seller/${user.sellerInfo.id}`).then(res => res.json()).then(setSellerProducts);
+      fetch(`/api/products/seller/${user.sellerInfo.id}`).then(res => res.json()).then(data => setSellerProducts(Array.isArray(data) ? data : []));
     }
   }, [user, activeTab, showAdd]);
 
@@ -285,20 +310,20 @@ const SellerProductsView = ({ user, activeTab }: { user: User | null, activeTab:
     }
   };
 
-  const toggleStatus = async (id: number, currentStatus: string) => {
+  const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'available' ? 'out_of_stock' : 'available';
     await fetch(`/api/products/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
     });
-    fetch(`/api/products/seller/${user?.sellerInfo?.id}`).then(res => res.json()).then(setSellerProducts);
+    fetch(`/api/products/seller/${user?.sellerInfo?.id}`).then(res => res.json()).then(data => setSellerProducts(Array.isArray(data) ? data : []));
   };
 
-  const deleteProduct = async (id: number) => {
+  const deleteProduct = async (id: string) => {
     if (confirm("Are you sure you want to delete this product?")) {
       await fetch(`/api/products/${id}`, { method: 'DELETE' });
-      fetch(`/api/products/seller/${user?.sellerInfo?.id}`).then(res => res.json()).then(setSellerProducts);
+      fetch(`/api/products/seller/${user?.sellerInfo?.id}`).then(res => res.json()).then(data => setSellerProducts(Array.isArray(data) ? data : []));
     }
   };
 
@@ -327,7 +352,7 @@ const SellerProductsView = ({ user, activeTab }: { user: User | null, activeTab:
                     onClick={() => toggleStatus(product.id, product.status)}
                     className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold uppercase ${product.status === 'available' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}
                   >
-                    {product.status.replace(/_/g, ' ')}
+                    {product.status?.replace(/_/g, ' ') || 'Active'}
                   </button>
                 </div>
               </div>
@@ -410,22 +435,28 @@ const SellerProductsView = ({ user, activeTab }: { user: User | null, activeTab:
   );
 };
 
-const AdminDashboardView = ({ activeTab, logout }: { activeTab: string, logout: () => void }) => {
+const AdminDashboardView = ({ activeTab, logout, dbStatus }: { activeTab: string, logout: () => void, dbStatus: any }) => {
   const [stats, setStats] = useState({ users: 0, sellers: 0, orders: 0, earnings: 0 });
   const [sellers, setSellers] = useState<any[]>([]);
 
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [showAllProducts, setShowAllProducts] = useState(false);
+
   useEffect(() => {
     fetch('/api/admin/stats').then(res => res.json()).then(setStats);
-    fetch('/api/admin/sellers').then(res => res.json()).then(setSellers);
-  }, [activeTab]);
+    fetch('/api/admin/sellers').then(res => res.json()).then(data => setSellers(Array.isArray(data) ? data : []));
+    if (showAllProducts) {
+      fetch('/api/products/nearby').then(res => res.json()).then(data => setAllProducts(Array.isArray(data) ? data : []));
+    }
+  }, [activeTab, showAllProducts]);
 
-  const toggleApproval = async (id: number, current: number) => {
+  const toggleApproval = async (id: string, current: boolean) => {
     await fetch(`/api/admin/sellers/${id}/approve`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approved: !current })
     });
-    fetch('/api/admin/sellers').then(res => res.json()).then(setSellers);
+    fetch('/api/admin/sellers').then(res => res.json()).then(data => setSellers(Array.isArray(data) ? data : []));
   };
 
   return (
@@ -436,6 +467,23 @@ const AdminDashboardView = ({ activeTab, logout }: { activeTab: string, logout: 
       </header>
 
       <div className="p-6 space-y-6 flex-1 overflow-y-auto pb-24">
+        {dbStatus && dbStatus.status === 'error' && (
+          <div className="bg-red-50 border border-red-200 p-4 rounded-2xl mb-4">
+            <div className="flex items-center gap-2 text-red-600 font-bold mb-1">
+              <ShieldCheck size={18} />
+              <span>Supabase Connection Error</span>
+            </div>
+            <p className="text-sm text-red-500">{dbStatus.message}</p>
+            {dbStatus.config && (
+              <div className="mt-2 text-xs text-red-400">
+                URL: {dbStatus.config.url} | Key: {dbStatus.config.key}
+              </div>
+            )}
+            <p className="mt-2 text-xs text-slate-500 italic">
+              Hint: Make sure you've run the SQL in supabase_schema.sql and set your environment variables.
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <p className="text-[10px] text-slate-400 font-bold uppercase">Users</p>
@@ -456,23 +504,56 @@ const AdminDashboardView = ({ activeTab, logout }: { activeTab: string, logout: 
         </div>
 
         <div>
-          <h4 className="font-bold mb-4">Seller Management</h4>
-          <div className="space-y-3">
-            {sellers.map(s => (
-              <div key={s.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-sm">{s.shop_name}</p>
-                  <p className="text-xs text-slate-400">{s.name} • {s.mobile}</p>
-                </div>
-                <button 
-                  onClick={() => toggleApproval(s.id, s.approved)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider ${s.approved ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}
-                >
-                  {s.approved ? 'Approved' : 'Approve'}
-                </button>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="font-bold">Seller Management</h4>
+            <button 
+              onClick={() => setShowAllProducts(!showAllProducts)}
+              className="text-emerald-600 text-xs font-medium"
+            >
+              {showAllProducts ? 'Show Sellers' : 'Verify All Products'}
+            </button>
           </div>
+
+          {showAllProducts ? (
+            <div className="space-y-3">
+              {allProducts.length === 0 ? (
+                <div className="text-center py-8 bg-white rounded-2xl border border-dashed border-slate-200">
+                  <Package className="mx-auto text-slate-300 mb-2" size={32} />
+                  <p className="text-slate-500 text-xs">No products found in DB for approved sellers</p>
+                </div>
+              ) : (
+                allProducts.map(p => (
+                  <div key={p.id} className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
+                    <img src={p.image_url || `https://picsum.photos/seed/${p.id}/100/100`} className="w-10 h-10 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-xs">{p.name}</p>
+                      <p className="text-[10px] text-slate-400">{p.shop_name} • ₹{p.price}</p>
+                    </div>
+                    <span className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold uppercase ${p.status === 'available' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                      {p.status}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sellers.map(s => (
+                <div key={s.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-sm">{s.shop_name}</p>
+                    <p className="text-xs text-slate-400">{s.name} • {s.mobile}</p>
+                  </div>
+                  <button 
+                    onClick={() => toggleApproval(s.id, s.approved)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider ${s.approved ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}
+                  >
+                    {s.approved ? 'Approved' : 'Approve'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -523,6 +604,9 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [roleMode, setRoleMode] = useState<'customer' | 'seller'>('customer');
   const [notifications, setNotifications] = useState<{ id: number; message: string; type: 'info' | 'success' }[]>([]);
+  const [dbStatus, setDbStatus] = useState<{ status: string; message: string; config: any } | null>(null);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editFormData, setEditFormData] = useState({ name: '', email: '' });
   
   const socketRef = useRef<Socket | null>(null);
 
@@ -536,6 +620,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    fetch('/api/health').then(res => res.json()).then(setDbStatus);
     const savedUser = localStorage.getItem('aliflaila_user');
     if (savedUser) {
       const parsed = JSON.parse(savedUser);
@@ -581,11 +666,19 @@ export default function App() {
       });
 
       socket.on('new_order', (data) => {
-        addNotification(`New order received! Order #${data.orderId} for ₹${data.totalAmount}`, 'success');
+        const message = `New order received! Order #${data.orderId} for ₹${data.totalAmount}`;
+        addNotification(message, 'success');
+        if (Notification.permission === 'granted') {
+          new Notification('Alif Laila: New Order', { body: message, icon: '/favicon.ico' });
+        }
       });
 
       socket.on('order_status_update', (data) => {
-        addNotification(`Your order #${data.orderId} status updated to: ${data.status.replace(/_/g, ' ')}`, 'info');
+        const message = `Your order #${data.orderId} status updated to: ${data.status?.replace(/_/g, ' ') || 'Updated'}`;
+        addNotification(message, 'info');
+        if (Notification.permission === 'granted') {
+          new Notification('Alif Laila: Order Update', { body: message, icon: '/favicon.ico' });
+        }
       });
 
       return () => {
@@ -595,7 +688,7 @@ export default function App() {
   }, [user]);
 
   const addNotification = (message: string, type: 'info' | 'success' = 'info') => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     setNotifications(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
@@ -603,7 +696,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'home' && !user?.role || activeTab === 'home' && user?.role === 'customer') {
+    if (activeTab === 'home' && (!user?.role || user?.role === 'user' || user?.role === 'customer')) {
       fetchNearbyProducts();
     }
   }, [activeTab, location]);
@@ -611,9 +704,14 @@ export default function App() {
   const fetchNearbyProducts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/products/nearby?lat=${location?.lat || 0}&lng=${location?.lng || 0}`);
+      const queryParams = location ? `?lat=${location.lat}&lng=${location.lng}` : '';
+      const res = await fetch(`/api/products/nearby${queryParams}`);
       const data = await res.json();
-      setProducts(data);
+      if (Array.isArray(data)) {
+        setProducts(data);
+      } else {
+        setProducts([]);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -637,11 +735,19 @@ export default function App() {
           setLocation({ lat: data.user.lat, lng: data.user.lng });
         }
         localStorage.setItem('aliflaila_user', JSON.stringify(data.user));
+        
+        // Request notification permission
+        if ('Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+
         if (data.user.role === 'seller') setActiveTab('seller-dashboard');
         else if (data.user.role === 'admin') setActiveTab('admin-dashboard');
         else setActiveTab('home');
       } else {
-        alert(data.error);
+        const errorMessage = data.error || "Login failed";
+        const details = data.details ? `\n\nDetails: ${data.details}` : '';
+        alert(`${errorMessage}${details}`);
       }
     } catch (err) {
       alert("Login failed");
@@ -664,7 +770,11 @@ export default function App() {
         alert("Signup successful! Please login.");
         setAuthMode('login');
       } else {
-        alert(data.error);
+        const errorMessage = data.error || "Signup failed";
+        const details = data.details ? `\n\nDetails: ${data.details}` : '';
+        const hint = data.hint ? `\n\nHint: ${data.hint}` : '';
+        const code = data.code ? `\n\nError Code: ${data.code}` : '';
+        alert(`${errorMessage}${details}${hint}${code}`);
       }
     } catch (err) {
       alert("Signup failed");
@@ -707,11 +817,205 @@ export default function App() {
 
   // --- Screens ---
 
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editFormData)
+      });
+      const data = await res.json();
+      if (data.success) {
+        const updatedUser = { ...user, ...data.user };
+        setUser(updatedUser);
+        localStorage.setItem('aliflaila_user', JSON.stringify(updatedUser));
+        setShowEditProfile(false);
+        addNotification('Profile updated!', 'success');
+      }
+    } catch (err) {
+      alert("Failed to update profile");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateLocationManually = async () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+    
+    setLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLocation(newLoc);
+        
+        if (user) {
+          try {
+            const res = await fetch(`/api/users/${user.id}/location`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newLoc)
+            });
+            const data = await res.json();
+            if (data.success) {
+              const updatedUser = { ...user, lat: newLoc.lat, lng: newLoc.lng };
+              setUser(updatedUser);
+              localStorage.setItem('aliflaila_user', JSON.stringify(updatedUser));
+              addNotification('Location updated successfully!', 'success');
+              fetchNearbyProducts();
+            }
+          } catch (err) {
+            console.error(err);
+            alert("Failed to update location on server");
+          }
+        } else {
+          addNotification('Location set!', 'success');
+          fetchNearbyProducts();
+        }
+        setLoading(false);
+      },
+      (err) => {
+        setLoading(false);
+        alert("Could not get your location. Please enable location permissions.");
+      }
+    );
+  };
+
   const renderAuth = () => (
     <div className="p-6 flex flex-col h-full justify-center">
+      {dbStatus && dbStatus.status === 'error' && (
+        <div className="fixed inset-0 z-50 bg-white p-8 flex flex-col items-center justify-center text-center">
+          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center text-red-600 mb-6">
+            <ShieldCheck size={40} />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">
+            {dbStatus.supabase === 'invalid_key' ? "Wrong Key Type" : 
+             dbStatus.supabase === 'missing_key' ? "API Key Missing" : 
+             "Database Setup Required"}
+          </h2>
+          <p className="text-slate-500 mb-8 max-w-md">
+            {dbStatus.supabase === 'invalid_key' 
+              ? "Aapne 'Stripe' ki keys copy kar li hain. Ye keys payment ke liye hoti hain, database ke liye nahi."
+              : dbStatus.supabase === 'missing_key'
+              ? "Aapne Supabase API Key nahi daali hai."
+              : "Database connected hai, lekin tables (Users, Sellers) nahi bane hain."}
+          </p>
+          
+          <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl w-full max-w-md mb-8 text-left">
+            <p className="text-sm font-bold text-slate-700 mb-2">Sahi Key Kaise Milegi:</p>
+            {(dbStatus.supabase === 'invalid_key' || dbStatus.supabase === 'missing_key') ? (
+              <div className="space-y-4">
+                <div className="bg-red-50 p-3 rounded-xl border border-red-100 mb-4">
+                  <p className="text-[10px] text-red-600 font-bold uppercase">❌ Galat Key (Stripe):</p>
+                  <p className="text-[10px] text-red-500 italic">sb_publishable_... (Ye nahi chalegi)</p>
+                </div>
+                
+                <ol className="text-xs text-slate-500 space-y-3 list-decimal pl-4">
+                  <li>Supabase Dashboard kholiye</li>
+                  <li><b>Settings (⚙️)</b> - <b>API</b> par jaaiye</li>
+                  <li><b>"Project API keys"</b> section dhoondiye</li>
+                  <li><b>"anon" public</b> key copy kijiye</li>
+                </ol>
+
+                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
+                  <p className="text-[10px] text-emerald-600 font-bold uppercase mb-1">✅ Sahi Key (Supabase):</p>
+                  <code className="text-[10px] break-all text-emerald-800 bg-white p-1 rounded block">
+                    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  </code>
+                </div>
+              </div>
+            ) : (
+              <ol className="text-xs text-slate-500 space-y-3 list-decimal pl-4">
+                <li><b>SQL Editor</b> par jaaiye</li>
+                <li><b>New Query</b> par click kijiye</li>
+                <li>Neeche wala code paste karke <b>Run</b> kijiye</li>
+              </ol>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 w-full max-w-md">
+            {(dbStatus.supabase !== 'invalid_key' && dbStatus.supabase !== 'missing_key') && (
+              <button 
+                onClick={() => {
+                  const sql = `-- Supabase Schema for Aliflaila
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  mobile TEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE,
+  password TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'customer',
+  lat FLOAT,
+  lng FLOAT,
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sellers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  shop_name TEXT NOT NULL,
+  lat FLOAT,
+  lng FLOAT,
+  approved BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS wallets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  balance FLOAT DEFAULT 0,
+  pending_balance FLOAT DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE sellers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;`;
+                navigator.clipboard.writeText(sql);
+                alert("SQL Code Copied! Now paste it in Supabase SQL Editor.");
+              }}
+              className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold shadow-lg shadow-emerald-200"
+            >
+              Copy SQL Code
+            </button>
+          )}
+          <button 
+            onClick={() => window.location.reload()}
+              className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold"
+            >
+              I've run the code, Refresh App
+            </button>
+          </div>
+        </div>
+      )}
       <div className="mb-8 text-center">
         <h1 className="text-4xl font-display font-bold text-emerald-600">Alif Laila</h1>
         <p className="text-slate-500 mt-2">Your local marketplace</p>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-6 text-xs text-amber-800">
+        <p className="font-bold mb-1">⚠️ Database Setup Required</p>
+        <p className="mb-2">If you see "Insert Error", you need to create tables in Supabase. Copy the code from <code>supabase_schema.sql</code> and run it in your Supabase SQL Editor.</p>
+        <button 
+          onClick={async () => {
+            try {
+              const res = await fetch('/api/health');
+              const data = await res.json();
+              alert(`Status: ${data.status}\nSupabase: ${data.supabase}\nMessage: ${data.message}`);
+            } catch (e) {
+              alert("Could not connect to server.");
+            }
+          }}
+          className="text-emerald-700 font-bold underline"
+        >
+          Check Database Connection
+        </button>
       </div>
 
       <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
@@ -793,6 +1097,12 @@ export default function App() {
 
   const renderHome = () => (
     <div className="flex-1 overflow-y-auto pb-24">
+      {dbStatus && dbStatus.status === 'error' && (
+        <div className="bg-red-500 text-white p-3 text-center text-xs font-bold flex items-center justify-center gap-2">
+          <ShieldCheck size={14} />
+          <span>Database not configured. Please check Admin Panel.</span>
+        </div>
+      )}
       <header className="p-6 bg-white sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -800,28 +1110,11 @@ export default function App() {
             <div>
               <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Delivery to</p>
               <p className="text-sm font-semibold truncate max-w-[150px]">
-                {location ? `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}` : 'Detecting...'}
+                {location ? `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}` : 'Location not set'}
               </p>
             </div>
             <button 
-              onClick={() => {
-                if (navigator.geolocation) {
-                  navigator.geolocation.getCurrentPosition(
-                    async (pos) => {
-                      const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                      setLocation(newLoc);
-                      if (user) {
-                        await fetch(`/api/users/${user.id}/location`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(newLoc)
-                        });
-                      }
-                    },
-                    (err) => alert("Could not detect location. Please enable GPS.")
-                  );
-                }
-              }}
+              onClick={updateLocationManually}
               className="p-1 text-slate-400 hover:text-emerald-600 transition-colors"
             >
               <RefreshCw size={14} />
@@ -847,6 +1140,25 @@ export default function App() {
       </header>
 
       <div className="px-6 space-y-6">
+        {!location && (
+          <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
+                <MapPin size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-emerald-800">Set your location</p>
+                <p className="text-[10px] text-emerald-600">To see products near you</p>
+              </div>
+            </div>
+            <button 
+              onClick={updateLocationManually}
+              className="px-4 py-2 bg-emerald-600 text-white text-[10px] font-bold rounded-xl shadow-lg shadow-emerald-200"
+            >
+              Set Now
+            </button>
+          </div>
+        )}
         {/* Banner */}
         <div className="bg-emerald-600 rounded-2xl p-6 text-white relative overflow-hidden">
           <div className="relative z-10">
@@ -873,7 +1185,24 @@ export default function App() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold font-display">Nearby Products</h2>
-            <button className="text-emerald-600 text-sm font-medium">See all</button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => fetchNearbyProducts()}
+                className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-200 transition-colors"
+                title="Refresh"
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              </button>
+              <button 
+                onClick={() => {
+                  setLocation(null);
+                  fetchNearbyProducts();
+                }}
+                className="text-emerald-600 text-sm font-medium"
+              >
+                See all
+              </button>
+            </div>
           </div>
           
           {loading ? (
@@ -883,7 +1212,10 @@ export default function App() {
           ) : products.length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
               <Package className="mx-auto text-slate-300 mb-2" size={40} />
-              <p className="text-slate-500 text-sm">No products found nearby</p>
+              <p className="text-slate-500 text-sm mb-2">No products found nearby</p>
+              <p className="text-[10px] text-slate-400 max-w-[200px] mx-auto italic">
+                Hint: Sellers must be "Approved" by Admin and have "Available" products to show up here.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
@@ -1066,7 +1398,51 @@ export default function App() {
             </div>
           </div>
           <div className="space-y-2">
-            <button className="w-full flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-slate-50">
+            <button 
+              onClick={updateLocationManually}
+              className="w-full flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-slate-50"
+            >
+              <div className="flex items-center gap-3">
+                <MapPin size={20} className="text-slate-400" />
+                <span className="text-sm font-medium">Update Location</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                  {location ? 'Set' : 'Not Set'}
+                </span>
+                <ChevronRight size={18} className="text-slate-300" />
+              </div>
+            </button>
+            <button 
+              onClick={() => {
+                if ('Notification' in window) {
+                  Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                      addNotification('Notifications enabled!', 'success');
+                    }
+                  });
+                }
+              }}
+              className="w-full flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-slate-50"
+            >
+              <div className="flex items-center gap-3">
+                <Bell size={20} className="text-slate-400" />
+                <span className="text-sm font-medium">Enable Notifications</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                  {typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'Not Supported'}
+                </span>
+                <ChevronRight size={18} className="text-slate-300" />
+              </div>
+            </button>
+            <button 
+              onClick={() => {
+                setEditFormData({ name: user?.name || '', email: user?.email || '' });
+                setShowEditProfile(true);
+              }}
+              className="w-full flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-slate-50"
+            >
               <div className="flex items-center gap-3">
                 <Settings size={20} className="text-slate-400" />
                 <span className="text-sm font-medium">Edit Profile</span>
@@ -1085,7 +1461,7 @@ export default function App() {
       );
       case 'seller-dashboard': return <SellerDashboardView user={user} activeTab={activeTab} setActiveTab={setActiveTab} logout={logout} />;
       case 'seller-products': return <SellerProductsView user={user} activeTab={activeTab} />;
-      case 'admin-dashboard': return <AdminDashboardView activeTab={activeTab} logout={logout} />;
+      case 'admin-dashboard': return <AdminDashboardView activeTab={activeTab} logout={logout} dbStatus={dbStatus} />;
       default: return renderHome();
     }
   };
@@ -1113,6 +1489,71 @@ export default function App() {
       </div>
 
       {renderContent()}
+      
+      <AnimatePresence>
+        {showEditProfile && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] p-8 overflow-hidden"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold font-display">Edit Profile</h3>
+                <button onClick={() => setShowEditProfile(false)} className="p-2 bg-slate-100 rounded-full text-slate-400">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleUpdateProfile} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 ml-1 mb-1 block">Full Name</label>
+                  <input
+                    type="text"
+                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    value={editFormData.name}
+                    onChange={e => setEditFormData({...editFormData, name: e.target.value})}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400 ml-1 mb-1 block">Email Address</label>
+                  <input
+                    type="email"
+                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    value={editFormData.email}
+                    onChange={e => setEditFormData({...editFormData, email: e.target.value})}
+                  />
+                </div>
+                
+                <div className="pt-2">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowEditProfile(false);
+                      updateLocationManually();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 p-4 bg-emerald-50 text-emerald-600 rounded-2xl font-bold text-sm border border-emerald-100"
+                  >
+                    <MapPin size={18} />
+                    Update My Location
+                  </button>
+                </div>
+
+                <button type="submit" disabled={loading} className="btn-primary w-full mt-4 py-4">
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} role={user?.role || 'customer'} />
     </div>
   );

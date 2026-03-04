@@ -1,5 +1,5 @@
 export interface User {
-  id: number;
+  id: string;
   name: string;
   mobile: string;
   email?: string;
@@ -10,17 +10,17 @@ export interface User {
 }
 
 export interface Seller {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   shop_name: string;
   bank_details?: string;
   upi_id?: string;
-  approved: number;
+  approved: boolean;
 }
 
 export interface Product {
-  id: number;
-  seller_id: number;
+  id: string;
+  seller_id: string;
   name: string;
   description: string;
   price: number;
@@ -30,16 +30,27 @@ export interface Product {
   shop_name?: string;
 }
 
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  price: number;
+  name?: string;
+  image_url?: string;
+}
+
 export interface Order {
-  id: number;
-  customer_id: number;
-  seller_id: number;
+  id: string;
+  customer_id: string;
+  seller_id: string;
   total_amount: number;
   platform_fee: number;
   status: 'pending' | 'accepted' | 'out_for_delivery' | 'delivered' | 'rejected';
   lat?: number;
   lng?: number;
   created_at: string;
+  items?: OrderItem[];
 }
 
 export interface CartItem extends Product {

@@ -1,100 +1,35 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
+import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Server } from "socket.io";
 import http from "http";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("aliflaila.db");
+// --- Supabase Connection ---
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://xoliigbbygwnjuavmjxe.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvbGlpZ2JieWd3bmp1YXZtanhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyNjQwMjQsImV4cCI6MjA4Nzg0MDAyNH0.u1B36D3OJlsTHGfg4--FMHGQ5e3mhFuq6AEs1L8KlPo";
 
-// Initialize Database Schema
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    mobile TEXT UNIQUE NOT NULL,
-    email TEXT,
-    password TEXT NOT NULL,
-    role TEXT DEFAULT 'customer', -- 'customer', 'seller', 'admin'
-    lat REAL,
-    lng REAL,
-    status TEXT DEFAULT 'active',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+if (!SUPABASE_URL) {
+  console.error("CRITICAL: Supabase URL is missing!");
+}
 
-  CREATE TABLE IF NOT EXISTS sellers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    shop_name TEXT NOT NULL,
-    bank_details TEXT,
-    upi_id TEXT,
-    lat REAL,
-    lng REAL,
-    approved INTEGER DEFAULT 0,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
+if (!SUPABASE_KEY) {
+  console.warn("WARNING: Supabase API Key is missing. Please set VITE_SUPABASE_ANON_KEY in environment variables.");
+}
 
-  // Ensure sellers table has lat/lng if it already existed
-  try { db.prepare("ALTER TABLE sellers ADD COLUMN lat REAL").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE sellers ADD COLUMN lng REAL").run(); } catch(e) {}
+// Check if the key looks like a Supabase key (JWT starts with eyJ)
+if (SUPABASE_KEY && !SUPABASE_KEY.startsWith('eyJ')) {
+  console.warn("WARNING: The SUPABASE_KEY provided starts with '" + SUPABASE_KEY.substring(0, 10) + "...'. A real Supabase key MUST start with 'eyJ'.");
+}
 
-  CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seller_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    price REAL NOT NULL,
-    image_url TEXT,
-    category TEXT NOT NULL,
-    status TEXT DEFAULT 'available',
-    FOREIGN KEY (seller_id) REFERENCES sellers(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_id INTEGER NOT NULL,
-    seller_id INTEGER NOT NULL,
-    total_amount REAL NOT NULL,
-    platform_fee REAL DEFAULT 5.0,
-    status TEXT DEFAULT 'pending', -- 'pending', 'accepted', 'out_for_delivery', 'delivered', 'rejected'
-    lat REAL,
-    lng REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES users(id),
-    FOREIGN KEY (seller_id) REFERENCES sellers(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
-    quantity INTEGER NOT NULL,
-    price REAL NOT NULL,
-    FOREIGN KEY (order_id) REFERENCES orders(id),
-    FOREIGN KEY (product_id) REFERENCES products(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS wallets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    balance REAL DEFAULT 0.0,
-    pending_balance REAL DEFAULT 0.0,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS payouts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seller_id INTEGER NOT NULL,
-    amount REAL NOT NULL,
-    status TEXT DEFAULT 'pending',
-    payout_date DATETIME,
-    FOREIGN KEY (seller_id) REFERENCES sellers(id)
-  );
-`);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function startServer() {
   const app = express();
@@ -115,41 +50,211 @@ async function startServer() {
 
   // --- API ROUTES ---
 
-  // Auth
-  app.post("/api/auth/signup", (req, res) => {
-    const { name, mobile, email, password, role, shopName, lat, lng } = req.body;
+  // Health Check
+  app.get("/api/health", async (req, res) => {
+    const config = {
+      url: SUPABASE_URL ? "Set" : "Missing",
+      key: SUPABASE_KEY ? "Set" : "Missing",
+      keyFormat: SUPABASE_KEY?.startsWith('eyJ') ? "Valid (JWT)" : "Invalid (Doesn't start with eyJ)"
+    };
+
+    if (!SUPABASE_KEY) {
+      return res.status(500).json({ 
+        status: "error", 
+        supabase: "missing_key", 
+        config,
+        message: "Supabase API Key is missing.",
+        hint: "Please add VITE_SUPABASE_ANON_KEY to your environment variables in AI Studio."
+      });
+    }
+
+    if (SUPABASE_KEY && !SUPABASE_KEY.startsWith('eyJ')) {
+      return res.status(500).json({ 
+        status: "error", 
+        supabase: "invalid_key", 
+        config,
+        message: "The API Key you provided is NOT a Supabase key.",
+        hint: "Your key starts with 'sb_publishable_', which is for Stripe. Supabase keys MUST start with 'eyJ'. Please get the 'anon public' key from Supabase Settings -> API."
+      });
+    }
+
     try {
-      const stmt = db.prepare("INSERT INTO users (name, mobile, email, password, role, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)");
-      const info = stmt.run(name, mobile, email, password, role || 'customer', lat, lng);
-      const userId = info.lastInsertRowid;
-
-      if (role === 'seller') {
-        const sellerStmt = db.prepare("INSERT INTO sellers (user_id, shop_name, lat, lng) VALUES (?, ?, ?, ?)");
-        sellerStmt.run(userId, shopName, lat, lng);
+      // Check users table
+      const { error: userTableError } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true });
+      
+      // Check sellers table
+      const { error: sellerTableError } = await supabase
+        .from('sellers')
+        .select('*', { count: 'exact', head: true });
+      
+      if (userTableError || sellerTableError) {
+        const missingTable = userTableError ? 'users' : 'sellers';
+        console.error(`Supabase Table Missing (${missingTable}):`, userTableError || sellerTableError);
+        return res.status(500).json({ 
+          status: "error", 
+          supabase: "failed", 
+          config,
+          errorType: "TABLE_MISSING",
+          message: `Database table '${missingTable}' is missing. You need to run the setup script in Supabase.`,
+          hint: "Copy the content of 'supabase_schema.sql' and run it in the Supabase SQL Editor."
+        });
       }
-
-      // Initialize wallet
-      const walletStmt = db.prepare("INSERT INTO wallets (user_id) VALUES (?)");
-      walletStmt.run(userId);
-
-      res.json({ success: true, userId });
+      
+      res.json({ 
+        status: "ok", 
+        supabase: "connected", 
+        config,
+        message: "Successfully connected to Supabase and verified all tables exist."
+      });
     } catch (error: any) {
-      console.error("Signup Error:", error);
-      res.status(400).json({ 
-        error: error.message || "Signup failed",
-        details: "If you are on Vercel, SQLite will not work because the file system is read-only. Please use a cloud database like Supabase, MongoDB, or Vercel Postgres."
+      console.error("Health Check Error:", error);
+      res.status(500).json({ 
+        status: "error", 
+        supabase: "failed", 
+        config,
+        message: error.message,
+        hint: "Check your Supabase URL and API Key in environment variables."
       });
     }
   });
 
-  app.post("/api/auth/login", (req, res) => {
+  // Auth
+  app.post("/api/auth/signup", async (req, res) => {
+    const { name, mobile, email, password, role, shopName, lat, lng } = req.body;
+    
+    if (!name || !mobile || !password) {
+      return res.status(400).json({ error: "Name, mobile, and password are required" });
+    }
+
+    try {
+      // 1. Create User
+      const latVal = (lat !== null && lat !== undefined && lat !== "") ? parseFloat(lat.toString()) : null;
+      const lngVal = (lng !== null && lng !== undefined && lng !== "") ? parseFloat(lng.toString()) : null;
+
+      const userData = { 
+        name, 
+        mobile, 
+        email: email && email.trim() !== "" ? email : null,
+        password, 
+        role: mobile === '7709444275' ? 'admin' : (role === 'customer' ? 'user' : (role || 'user')),
+        lat: isNaN(latVal as number) ? null : latVal,
+        lng: isNaN(lngVal as number) ? null : lngVal,
+        status: 'active'
+      };
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .insert([userData])
+        .select()
+        .single();
+
+      if (userError) {
+        console.error("Supabase User Insert Error:", JSON.stringify(userError, null, 2));
+        
+        return res.status(400).json({ 
+          error: userError.message || "Signup failed at User creation", 
+          details: userError.details || JSON.stringify(userError),
+          code: userError.code,
+          hint: userError.hint || "Check if the 'users' table exists and has the correct columns."
+        });
+      }
+
+      if (!user) {
+        throw new Error("Failed to create user record");
+      }
+
+      // 2. Create Seller Record if applicable
+      if (role === 'seller') {
+        const { error: sellerError } = await supabase
+          .from('sellers')
+          .insert([{ 
+            user_id: user.id, 
+            shop_name: shopName || `${name}'s Shop`, 
+            lat: userData.lat, 
+            lng: userData.lng,
+            approved: false,
+            category: 'General',
+            address: 'Not provided'
+          }]);
+        
+        if (sellerError) {
+          console.error("Supabase Seller Insert Error:", JSON.stringify(sellerError, null, 2));
+          return res.status(400).json({ 
+            error: "User created but seller profile failed", 
+            details: sellerError.message,
+            code: sellerError.code,
+            hint: "Ensure the 'sellers' table exists in Supabase."
+          });
+        }
+      }
+
+      // 3. Create Wallet
+      const { error: walletError } = await supabase
+        .from('wallets')
+        .insert([{ user_id: user.id, balance: 0, pending_balance: 0 }]);
+      
+      if (walletError) {
+        console.error("Supabase Wallet Insert Error:", JSON.stringify(walletError, null, 2));
+        // Not fatal, but good to know
+      }
+
+      res.json({ success: true, userId: user.id });
+    } catch (error: any) {
+      console.error("Signup Error Details:", JSON.stringify(error, null, 2));
+      res.status(400).json({ 
+        error: error.message || "Signup failed",
+        details: error.details || "Check if mobile/email already exists or if tables are missing."
+      });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
     try {
       const { mobile, password } = req.body;
-      const user = db.prepare("SELECT * FROM users WHERE mobile = ? AND password = ?").get(mobile, password) as any;
+      const { data: user, error: loginError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('mobile', mobile)
+        .eq('password', password)
+        .single();
+
+      if (loginError && loginError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+        console.error("Supabase Login Query Error:", JSON.stringify(loginError, null, 2));
+        
+        if (loginError.code === '42P01') {
+          return res.status(500).json({ 
+            error: "Database tables missing", 
+            details: "The 'users' table does not exist. Please run the SQL schema in your Supabase dashboard."
+          });
+        }
+
+        return res.status(500).json({ error: "Database error", details: loginError.message });
+      }
+
       if (user) {
+        // Auto-upgrade to admin if mobile matches
+        if (mobile === '7709444275' && user.role !== 'admin') {
+          const { data: updatedUser } = await supabase
+            .from('users')
+            .update({ role: 'admin' })
+            .eq('id', user.id)
+            .select()
+            .single();
+          if (updatedUser) {
+            user.role = 'admin';
+          }
+        }
+
         let sellerInfo = null;
         if (user.role === 'seller') {
-          sellerInfo = db.prepare("SELECT * FROM sellers WHERE user_id = ?").get(user.id);
+          const { data: seller } = await supabase
+            .from('sellers')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+          sellerInfo = seller;
         }
         res.json({ success: true, user: { ...user, sellerInfo } });
       } else {
@@ -157,151 +262,327 @@ async function startServer() {
       }
     } catch (err) {
       console.error("Login Error:", err);
-      res.status(500).json({ error: "Database error. If you are on Vercel, please use a cloud database like Supabase or MongoDB instead of SQLite." });
+      res.status(500).json({ error: "Database error. Check Supabase connection." });
     }
   });
 
-  app.patch("/api/users/:id/location", (req, res) => {
-    const { lat, lng } = req.body;
-    db.prepare("UPDATE users SET lat = ?, lng = ? WHERE id = ?").run(lat, lng, req.params.id);
-    // If user is a seller, update seller location too
-    db.prepare("UPDATE sellers SET lat = ?, lng = ? WHERE user_id = ?").run(lat, lng, req.params.id);
-    res.json({ success: true });
+  app.patch("/api/users/:id/location", async (req, res) => {
+    try {
+      const { lat, lng } = req.body;
+      await supabase.from('users').update({ lat, lng }).eq('id', req.params.id);
+      await supabase.from('sellers').update({ lat, lng }).eq('user_id', req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update location" });
+    }
+  });
+
+  app.patch("/api/users/:id", async (req, res) => {
+    try {
+      const { name, email } = req.body;
+      const { data, error } = await supabase
+        .from('users')
+        .update({ name, email })
+        .eq('id', req.params.id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      res.json({ success: true, user: data });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update profile" });
+    }
   });
 
   // Products
-  app.get("/api/products/nearby", (req, res) => {
-    const { lat, lng, radius = 0.05 } = req.query; // 0.05 is roughly 5km
-    
-    let products;
-    if (lat && lng) {
-      products = db.prepare(`
-        SELECT p.*, s.shop_name 
-        FROM products p 
-        JOIN sellers s ON p.seller_id = s.id 
-        WHERE s.approved = 1 
-        AND p.status = 'available'
-        AND ABS(s.lat - ?) < ? 
-        AND ABS(s.lng - ?) < ?
-      `).all(lat, radius, lng, radius);
-    } else {
-      products = db.prepare(`
-        SELECT p.*, s.shop_name 
-        FROM products p 
-        JOIN sellers s ON p.seller_id = s.id 
-        WHERE s.approved = 1 AND p.status = 'available'
-      `).all();
+  app.get("/api/products/nearby", async (req, res) => {
+    try {
+      const { lat, lng, radius = 0.5 } = req.query; // Default to 0.5 (~55km)
+      const latNum = lat ? parseFloat(lat as string) : NaN;
+      const lngNum = lng ? parseFloat(lng as string) : NaN;
+      const radNum = parseFloat(radius as string);
+
+      let sellersQuery = supabase.from('sellers').select('*').eq('approved', true);
+      
+      if (!isNaN(latNum) && !isNaN(lngNum)) {
+        sellersQuery = sellersQuery
+          .gt('lat', latNum - radNum)
+          .lt('lat', latNum + radNum)
+          .gt('lng', lngNum - radNum)
+          .lt('lng', lngNum + radNum);
+      }
+
+      let { data: sellers, error: sellerError } = await sellersQuery;
+      
+      console.log(`[DEBUG] Nearby sellers found: ${sellers?.length || 0}`);
+
+      if (!sellers || sellers.length === 0) {
+        console.log("[DEBUG] No nearby sellers, falling back to all approved sellers");
+        const { data: allSellers, error: allError } = await supabase
+          .from('sellers')
+          .select('*')
+          .eq('approved', true);
+        sellers = allSellers;
+        sellerError = allError;
+        console.log(`[DEBUG] All approved sellers found: ${sellers?.length || 0}`);
+      }
+
+      if (sellerError) {
+        console.error("[DEBUG] Seller Query Error:", sellerError);
+        throw sellerError;
+      }
+
+      if (!sellers || sellers.length === 0) {
+        console.log("[DEBUG] No approved sellers found at all in the database.");
+        // Check if there are ANY sellers at all (unapproved)
+        const { count: totalSellers } = await supabase.from('sellers').select('*', { count: 'exact', head: true });
+        console.log(`[DEBUG] Total sellers in DB (including unapproved): ${totalSellers || 0}`);
+        res.json([]);
+        return;
+      }
+
+      const sellerIds = sellers.map(s => s.id);
+      console.log(`[DEBUG] Fetching products for seller IDs: ${sellerIds.join(', ')}`);
+      
+      const { data: products, error: productError } = await supabase
+        .from('products')
+        .select('*')
+        .in('seller_id', sellerIds)
+        .eq('status', 'available');
+
+      if (productError) {
+        console.error("[DEBUG] Product Query Error:", productError);
+        throw productError;
+      }
+
+      console.log(`[DEBUG] Products found for these sellers: ${products?.length || 0}`);
+
+      if (!products || products.length === 0) {
+        // Check if these sellers have ANY products (even out of stock)
+        const { data: anyProducts } = await supabase.from('products').select('id').in('seller_id', sellerIds);
+        console.log(`[DEBUG] Total products (any status) for these sellers: ${anyProducts?.length || 0}`);
+        
+        // Check total products in DB
+        const { count: totalProductsInDb } = await supabase.from('products').select('*', { count: 'exact', head: true });
+        console.log(`[DEBUG] Total products in entire DB: ${totalProductsInDb || 0}`);
+      }
+
+      if (productError) throw productError;
+
+      if (!products) {
+        res.json([]);
+        return;
+      }
+
+      // Map shop name
+      const results = products.map(p => {
+        const seller = sellers.find(s => s.id === p.seller_id);
+        return {
+          ...p,
+          shop_name: seller?.shop_name || 'Unknown Shop'
+        };
+      });
+
+      res.json(results);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch products" });
     }
-    res.json(products);
   });
 
-  app.get("/api/products/seller/:id", (req, res) => {
-    const products = db.prepare("SELECT * FROM products WHERE seller_id = ?").all(req.params.id);
-    res.json(products);
+  app.get("/api/products/seller/:id", async (req, res) => {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('seller_id', req.params.id);
+    res.json(data || []);
   });
 
-  app.post("/api/products", (req, res) => {
-    const { seller_id, name, description, price, image_url, category } = req.body;
-    const stmt = db.prepare("INSERT INTO products (seller_id, name, description, price, image_url, category) VALUES (?, ?, ?, ?, ?, ?)");
-    stmt.run(seller_id, name, description, price, image_url, category);
-    res.json({ success: true });
+  app.post("/api/products", async (req, res) => {
+    try {
+      const { seller_id, name, description, price, image_url, category } = req.body;
+      const { error } = await supabase
+        .from('products')
+        .insert([{ 
+          seller_id, 
+          name, 
+          description, 
+          price, 
+          image_url, 
+          category 
+        }]);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to add product" });
+    }
   });
 
-  app.patch("/api/products/:id/status", (req, res) => {
+  app.patch("/api/products/:id/status", async (req, res) => {
     const { status } = req.body;
-    db.prepare("UPDATE products SET status = ? WHERE id = ?").run(status, req.params.id);
+    await supabase.from('products').update({ status }).eq('id', req.params.id);
     res.json({ success: true });
   });
 
-  app.delete("/api/products/:id", (req, res) => {
-    db.prepare("DELETE FROM products WHERE id = ?").run(req.params.id);
+  app.delete("/api/products/:id", async (req, res) => {
+    await supabase.from('products').delete().eq('id', req.params.id);
     res.json({ success: true });
   });
 
   // Orders
-  app.post("/api/orders", (req, res) => {
-    const { customer_id, items, lat, lng } = req.body;
-    // items: [{ product_id, quantity, price, seller_id }]
-    // For simplicity, we assume one order per checkout, but in reality, 
-    // if items are from different sellers, we should split them.
-    // Here we'll just handle the first seller for the demo.
-    const firstItem = items[0];
-    const totalAmount = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-    
-    const stmt = db.prepare("INSERT INTO orders (customer_id, seller_id, total_amount, lat, lng) VALUES (?, ?, ?, ?, ?)");
-    const info = stmt.run(customer_id, firstItem.seller_id, totalAmount, lat, lng);
-    const orderId = info.lastInsertRowid;
-
-    const itemStmt = db.prepare("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)");
-    for (const item of items) {
-      itemStmt.run(orderId, item.product_id, item.quantity, item.price);
-    }
-
-    // Notify seller
-    io.to(`seller_${firstItem.seller_id}`).emit("new_order", { orderId, totalAmount });
-
-    res.json({ success: true, orderId });
-  });
-
-  app.get("/api/orders/customer/:id", (req, res) => {
-    const orders = db.prepare("SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC").all(req.params.id);
-    res.json(orders);
-  });
-
-  app.get("/api/orders/seller/:id", (req, res) => {
-    const orders = db.prepare("SELECT * FROM orders WHERE seller_id = ? ORDER BY created_at DESC").all(req.params.id);
-    res.json(orders);
-  });
-
-  app.patch("/api/orders/:id/status", (req, res) => {
-    const { status } = req.body;
-    const orderId = req.params.id;
-    db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
-
-    if (status === 'delivered') {
-      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
-      const amountToSeller = order.total_amount - order.platform_fee;
+  app.post("/api/orders", async (req, res) => {
+    try {
+      const { customer_id, items, lat, lng } = req.body;
+      const firstItem = items[0];
+      const totalAmount = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
       
-      // Update seller wallet
-      db.prepare("UPDATE wallets SET balance = balance + ? WHERE user_id = (SELECT user_id FROM sellers WHERE id = ?)").run(amountToSeller, order.seller_id);
-    }
+      const platformFee = totalAmount * 0.05; // 5% fee
+      
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .insert([{
+          customer_id,
+          seller_id: firstItem.seller_id,
+          total_amount: totalAmount,
+          platform_fee: platformFee,
+          delivery_lat: lat,
+          delivery_lng: lng
+        }])
+        .select()
+        .single();
 
-    // Notify customer
-    const order = db.prepare("SELECT customer_id FROM orders WHERE id = ?").get(orderId) as any;
-    if (order) {
-      io.to(`user_${order.customer_id}`).emit("order_status_update", { orderId, status });
-    }
+      if (orderError) throw orderError;
 
-    res.json({ success: true });
+      const orderItems = items.map((i: any) => ({
+        order_id: order.id,
+        product_id: i.product_id,
+        quantity: i.quantity,
+        price: i.price
+      }));
+
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+      if (itemsError) throw itemsError;
+
+      io.to(`seller_${firstItem.seller_id}`).emit("new_order", { orderId: order.id, totalAmount });
+      res.json({ success: true, orderId: order.id });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to create order" });
+    }
+  });
+
+  app.get("/api/orders/customer/:id", async (req, res) => {
+    const { data } = await supabase
+      .from('orders')
+      .select('*, order_items(*, products(*))')
+      .eq('customer_id', req.params.id)
+      .order('created_at', { ascending: false });
+    
+    // Map to match frontend expectation if needed
+    const results = (data || []).map(order => ({
+      ...order,
+      items: order.order_items.map((item: any) => ({
+        ...item,
+        name: item.products?.name,
+        image_url: item.products?.image_url
+      }))
+    }));
+    res.json(results);
+  });
+
+  app.get("/api/orders/seller/:id", async (req, res) => {
+    const { data } = await supabase
+      .from('orders')
+      .select('*, order_items(*, products(*))')
+      .eq('seller_id', req.params.id)
+      .order('created_at', { ascending: false });
+
+    const results = (data || []).map(order => ({
+      ...order,
+      items: order.order_items.map((item: any) => ({
+        ...item,
+        name: item.products?.name,
+        image_url: item.products?.image_url
+      }))
+    }));
+    res.json(results);
+  });
+
+  app.patch("/api/orders/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      const orderId = req.params.id;
+      
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .update({ status })
+        .eq('id', orderId)
+        .select()
+        .single();
+
+      if (orderError) throw orderError;
+
+      if (status === 'delivered' && order) {
+        const amountToSeller = order.total_amount - order.platform_fee;
+        const { data: seller } = await supabase.from('sellers').select('user_id').eq('id', order.seller_id).single();
+        if (seller) {
+          const { data: wallet } = await supabase.from('wallets').select('balance').eq('user_id', seller.user_id).single();
+          if (wallet) {
+            await supabase.from('wallets').update({ balance: wallet.balance + amountToSeller }).eq('user_id', seller.user_id);
+          }
+        }
+      }
+
+      if (order) {
+        io.to(`user_${order.customer_id}`).emit("order_status_update", { orderId, status });
+      }
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update order status" });
+    }
   });
 
   // Wallet
-  app.get("/api/wallet/:userId", (req, res) => {
-    const wallet = db.prepare("SELECT * FROM wallets WHERE user_id = ?").get(req.params.userId);
-    res.json(wallet);
+  app.get("/api/wallet/:userId", async (req, res) => {
+    const { data } = await supabase.from('wallets').select('*').eq('user_id', req.params.userId).single();
+    res.json(data);
   });
 
   // Admin
-  app.get("/api/admin/stats", (req, res) => {
-    const users = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
-    const sellers = db.prepare("SELECT COUNT(*) as count FROM sellers").get() as any;
-    const orders = db.prepare("SELECT COUNT(*) as count FROM orders").get() as any;
-    const earnings = db.prepare("SELECT SUM(platform_fee) as total FROM orders WHERE status = 'delivered'").get() as any;
-    res.json({ users: users.count, sellers: sellers.count, orders: orders.count, earnings: earnings.total || 0 });
+  app.get("/api/admin/stats", async (req, res) => {
+    const { count: userCount } = await supabase.from('users').select('*', { count: 'exact', head: true });
+    const { count: sellerCount } = await supabase.from('sellers').select('*', { count: 'exact', head: true });
+    const { count: orderCount } = await supabase.from('orders').select('*', { count: 'exact', head: true });
+    const { data: deliveredOrders } = await supabase.from('orders').select('platform_fee').eq('status', 'delivered');
+    
+    const totalEarnings = (deliveredOrders || []).reduce((sum, o) => sum + (o.platform_fee || 0), 0);
+    
+    res.json({ users: userCount || 0, sellers: sellerCount || 0, orders: orderCount || 0, earnings: totalEarnings });
   });
 
-  app.get("/api/admin/sellers", (req, res) => {
-    const sellers = db.prepare(`
-      SELECT s.*, u.name, u.mobile, u.status 
-      FROM sellers s 
-      JOIN users u ON s.user_id = u.id
-    `).all();
-    res.json(sellers);
+  app.get("/api/admin/sellers", async (req, res) => {
+    const { data: sellers, error } = await supabase
+      .from('sellers')
+      .select('*, users(*)');
+    
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    const results = (sellers || []).map((s: any) => ({
+      ...s,
+      name: s.users?.name,
+      mobile: s.users?.mobile,
+      status: s.users?.status
+    }));
+    res.json(results);
   });
 
-  app.patch("/api/admin/sellers/:id/approve", (req, res) => {
+  app.patch("/api/admin/sellers/:id/approve", async (req, res) => {
     const { approved } = req.body;
-    db.prepare("UPDATE sellers SET approved = ? WHERE id = ?").run(approved ? 1 : 0, req.params.id);
+    await supabase.from('sellers').update({ approved: !!approved }).eq('id', req.params.id);
     res.json({ success: true });
   });
 
