@@ -467,7 +467,7 @@ const AdminDashboardView = ({ activeTab, logout, dbStatus }: { activeTab: string
       </header>
 
       <div className="p-6 space-y-6 flex-1 overflow-y-auto pb-24">
-        {dbStatus && dbStatus.status === 'error' && (
+        {dbStatus && dbStatus.status === 'error' ? (
           <div className="bg-red-50 border border-red-200 p-4 rounded-2xl mb-4">
             <div className="flex items-center gap-2 text-red-600 font-bold mb-1">
               <ShieldCheck size={18} />
@@ -482,6 +482,11 @@ const AdminDashboardView = ({ activeTab, logout, dbStatus }: { activeTab: string
             <p className="mt-2 text-xs text-slate-500 italic">
               Hint: Make sure you've run the SQL in supabase_schema.sql and set your environment variables.
             </p>
+          </div>
+        ) : (
+          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl mb-4 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span className="text-xs font-medium text-emerald-700">System Online: Database Connected</span>
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
@@ -620,7 +625,18 @@ export default function App() {
   });
 
   useEffect(() => {
-    fetch('/api/health').then(res => res.json()).then(setDbStatus);
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(setDbStatus)
+      .catch(err => {
+        console.error("Health Check Failed:", err);
+        setDbStatus({ 
+          status: 'error', 
+          message: "Failed to connect to server. Please check your network or server logs.", 
+          config: null 
+        });
+      });
+
     const savedUser = localStorage.getItem('aliflaila_user');
     if (savedUser) {
       const parsed = JSON.parse(savedUser);

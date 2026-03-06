@@ -31,22 +31,21 @@ if (SUPABASE_KEY && !SUPABASE_KEY.startsWith('eyJ')) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-async function startServer() {
-  const app = express();
-  const server = http.createServer(app);
-  const io = new Server(server);
-  const PORT = 3000;
+// --- App Setup ---
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
-  app.use(express.json());
+app.use(express.json());
 
-  io.on("connection", (socket) => {
-    socket.on("join", (userId) => {
-      socket.join(`user_${userId}`);
-    });
-    socket.on("join_seller", (sellerId) => {
-      socket.join(`seller_${sellerId}`);
-    });
+io.on("connection", (socket) => {
+  socket.on("join", (userId) => {
+    socket.join(`user_${userId}`);
   });
+  socket.on("join_seller", (sellerId) => {
+    socket.join(`seller_${sellerId}`);
+  });
+});
 
   // --- API ROUTES ---
 
@@ -586,23 +585,26 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+  // Vite middleware for development (Local Only)
+  if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    const PORT = 3000;
+    
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      app.use(express.static(path.join(__dirname, "dist")));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(__dirname, "dist", "index.html"));
+      });
+    }
+
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
     });
   }
 
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+export default app;
